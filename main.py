@@ -204,31 +204,35 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
     sy_h1 = tf.nn.relu(dense(sy_ob_no, 32, "h1", weight_init=normc_initializer(1.0)))  # hidden layer
     sy_h2 = tf.nn.relu(dense(sy_h1, 16, "h2", weight_init=normc_initializer(1.0)))  # hidden layer
     sy_mean_na = dense(sy_h2, ac_dim, 'mean', weight_init=normc_initializer(0.1))
-    sy_logstd_a = tf.get_variable("logstdev", [ac_dim], initializer=tf.constant_initializer(0,dtype=tf.float32))
+    sy_logstd_a = dense(sy_h2, ac_dim, 'mean', weight_init=normc_initializer(0.1))
+    # sy_logstd_a = tf.get_variable("logstdev", [ac_dim], initializer=tf.constant_initializer(0,dtype=tf.float32))
 
     sy_oldmean_na = tf.placeholder(shape=[None, ac_dim], name='oldmean',
                                    dtype=tf.float32)  # mean BEFORE update (just used for KL diagnostic)
-    sy_oldlogstd_a = tf.placeholder(shape=[ac_dim], name='oldlogstd',
+    sy_oldlogstd_a = tf.placeholder(shape=[None, ac_dim], name='oldlogstd',
                                     dtype=tf.float32) # logstd BEFORE update (just used for KL diagnostic)
     sy_sampled_eps = tf.random_normal(tf.shape(sy_mean_na))
-    sy_sampled_ac = (sy_sampled_eps * tf.expand_dims(tf.exp(sy_logstd_a), axis=0) + sy_mean_na)[0]
-    # C - 0.5 * (x-mu)^2 / sigma^2
-    sy_logprob_n = tf.reduce_sum(0.5 * tf.square(
-                                                (sy_ac_n - sy_mean_na) / tf.exp(tf.expand_dims(sy_logstd_a, axis=0))
-                                                ), axis=1)
+    sy_sampled_ac = (sy_sampled_eps * tf.exp(sy_logstd_a) + sy_mean_na)[0]
+    # log P = -0.5 * (x - mu) ^2 / Sigma - k/2 log(2 pi) - 0.5 log(|Sigma|)
+    #       = -0.5 * (x - mu) ^ 2 / (std)^2 - sum_k log(std) - 0.5 * k * log(2pi)
+    sy_logprob_n = tf.reduce_sum(0.5 * tf.square((sy_ac_n - sy_mean_na) / tf.exp(sy_logstd_a)) + sy_logstd_a,
+                                 axis=1)  # ignore the constant term: 0.5 * ac_dim * log(2pi)
 
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<
     # entropy = 0.5 * ln((2pi e)^k |Sigma|) = 0.5 * [ k * log(2pie) ] + 0.5 * sum_k log(std_k ^ 2)
     #         = 0.5 * k * (log2pi + 1) + sum_k log(std_k)
-    sy_ent = tf.reduce_sum(sy_logstd_a) + 0.5 * ac_dim * (1 + np.log(2 * np.pi))
+    sy_ent = tf.reduce_mean(tf.reduce_sum(sy_logstd_a, axis=1) + 0.5 * ac_dim * (1 + np.log(2 * np.pi)))
     # KL = 0.5 * {trace(Sigma^-1 * Sigma_o) + (mu - mu_o)^T Sigma^{-1} (mu - mu_0) - k + ln|Sigma| - ln|Sigma_o|}
     #    = 0.5 * {sum_k std_o^2/std^2 + sum_k det_k^2/std^2 - k + 2 * sum_k log std - 2 * sum_k log std_o}
     sy_det_mu = sy_mean_na - sy_oldmean_na
     sy_std = tf.exp(sy_logstd_a)
     sy_oldstd = tf.exp(sy_oldlogstd_a)
-    sy_kl = 0.5 * (tf.reduce_sum(tf.square(sy_oldstd / sy_std)) +
-                   tf.reduce_mean(tf.reduce_sum(tf.square(sy_det_mu / tf.expand_dims(sy_std, axis=0)), axis=1)) -
-                   tf.cast(ac_dim,tf.float32) + 2.0 * tf.reduce_sum(sy_logstd_a) - 2.0 * tf.reduce_sum(sy_oldlogstd_a)
+    sy_kl = 0.5 * tf.reduce_sum(
+                     tf.reduce_sum(tf.square(sy_oldstd / sy_std), axis=1) +
+                     tf.reduce_sum(tf.square(sy_det_mu / sy_std), axis=1) -
+                     tf.cast(ac_dim, tf.float32) +
+                     2.0 * tf.reduce_sum(sy_logstd_a, axis=1) -
+                     2.0 * tf.reduce_sum(sy_oldlogstd_a, axis=1),
                    )
     # <<<<<<<<<<<<<<<<<<<<<<
 
@@ -316,4 +320,4 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
 
 if __name__ == "__main__":
     #main_cartpole(logdir=None,animate=False) # when you want to start collecting results, set the logdir
-    main_pendulum(logdir=None,animate=False)
+    main_pendulum(logdir=None, animate=False)
