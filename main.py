@@ -20,7 +20,7 @@ def dense(x, size, name, weight_init=None):
     Dense (fully connected) layer
     """
     w = tf.get_variable(name + "/w", [x.get_shape()[1], size], initializer=weight_init)
-    b = tf.get_variable(name + "/b", [size], initializer=tf.constant_initializer(0))
+    b = tf.get_variable(name + "/b", [size], initializer=tf.constant_initializer(0,dtype=tf.float32))
     return tf.matmul(x, w) + b
 
 def fancy_slice_2d(X, inds0, inds1):
@@ -204,13 +204,12 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
     sy_h1 = tf.nn.relu(dense(sy_ob_no, 32, "h1", weight_init=normc_initializer(1.0)))  # hidden layer
     sy_h2 = tf.nn.relu(dense(sy_h1, 16, "h2", weight_init=normc_initializer(1.0)))  # hidden layer
     sy_mean_na = dense(sy_h2, ac_dim, 'mean', weight_init=normc_initializer(0.1))
-    sy_logstd_a = tf.get_variable("logstdev", [ac_dim], initializer=tf.constant_initializer(0))
+    sy_logstd_a = tf.get_variable("logstdev", [ac_dim], initializer=tf.constant_initializer(0,dtype=tf.float32))
 
     sy_oldmean_na = tf.placeholder(shape=[None, ac_dim], name='oldmean',
                                    dtype=tf.float32)  # mean BEFORE update (just used for KL diagnostic)
     sy_oldlogstd_a = tf.placeholder(shape=[None, ac_dim], name='oldlogstd',
                                     dtype=tf.float32) # logstd BEFORE update (just used for KL diagnostic)
-    sy_n = tf.shape(sy_mean_na)[0]
     sy_sampled_eps = tf.random_normal(tf.shape(sy_mean_na))
     sy_sampled_ac = sy_sampled_eps * tf.expand_dims(tf.exp(sy_logstd_a), axis=0) + sy_mean_na
     # C - 0.5 * (x-mu)^2 / sigma^2
@@ -227,9 +226,9 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
     sy_det_mu = sy_mean_na - sy_oldmean_na
     sy_std = tf.exp(sy_logstd_a)
     sy_oldstd = tf.exp(sy_oldlogstd_a)
-    sy_kl = 0.5 * (tf.reduce_sum(tf.square(sy_oldstd / sy_std)) * sy_n +
+    sy_kl = 0.5 * (tf.reduce_sum(tf.square(sy_oldstd / sy_std)) +
                    tf.reduce_mean(tf.reduce_sum(tf.square(sy_det_mu / tf.expand_dims(sy_std, axis=0)), axis=1)) -
-                   ac_dim + 2 * tf.reduce_sum(sy_logstd_a) - 2 * tf.reduce_sum(sy_oldlogstd_a)
+                   tf.cast(ac_dim,tf.float32) + 2.0 * tf.reduce_sum(sy_logstd_a) - 2.0 * tf.reduce_sum(sy_oldlogstd_a)
                    )
     # <<<<<<<<<<<<<<<<<<<<<<
 
