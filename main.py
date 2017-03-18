@@ -208,10 +208,10 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
 
     sy_oldmean_na = tf.placeholder(shape=[None, ac_dim], name='oldmean',
                                    dtype=tf.float32)  # mean BEFORE update (just used for KL diagnostic)
-    sy_oldlogstd_a = tf.placeholder(shape=[None, ac_dim], name='oldlogstd',
+    sy_oldlogstd_a = tf.placeholder(shape=[ac_dim], name='oldlogstd',
                                     dtype=tf.float32) # logstd BEFORE update (just used for KL diagnostic)
     sy_sampled_eps = tf.random_normal(tf.shape(sy_mean_na))
-    sy_sampled_ac = sy_sampled_eps * tf.expand_dims(tf.exp(sy_logstd_a), axis=0) + sy_mean_na
+    sy_sampled_ac = (sy_sampled_eps * tf.expand_dims(tf.exp(sy_logstd_a), axis=0) + sy_mean_na)[0]
     # C - 0.5 * (x-mu)^2 / sigma^2
     sy_logprob_n = tf.reduce_sum(0.5 * tf.square(
                                                 (sy_ac_n - sy_mean_na) / tf.exp(tf.expand_dims(sy_logstd_a, axis=0))
@@ -258,6 +258,8 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
             while True:
                 if animate_this_episode:
                     env.render()
+                if len(ob.shape) > 1:
+                    ob = np.squeeze(ob)
                 obs.append(ob)
                 ac = sess.run(sy_sampled_ac, feed_dict={sy_ob_no: ob[None]})
                 acs.append(ac)
@@ -313,5 +315,5 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
         logz.dump_tabular()
 
 if __name__ == "__main__":
-    # main_cartpole(logdir=None,animate=False) # when you want to start collecting results, set the logdir
+    #main_cartpole(logdir=None,animate=False) # when you want to start collecting results, set the logdir
     main_pendulum(logdir=None,animate=False)
