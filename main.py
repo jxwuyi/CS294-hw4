@@ -20,7 +20,7 @@ def dense(x, size, name, weight_init=None):
     Dense (fully connected) layer
     """
     w = tf.get_variable(name + "/w", [x.get_shape()[1], size], initializer=weight_init)
-    b = tf.get_variable(name + "/b", [size], initializer=tf.zeros_initializer)
+    b = tf.get_variable(name + "/b", [size], initializer=tf.constant_initializer(0))
     return tf.matmul(x, w) + b
 
 def fancy_slice_2d(X, inds0, inds1):
@@ -197,4 +197,4 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
 
 
 if __name__ == "__main__":
-    main_cartpole(logdir=None) # when you want to start collecting results, set the logdir
+    main_cartpole(logdir=None,animate=False) # when you want to start collecting results, set the logdir
