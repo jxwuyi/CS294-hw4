@@ -192,9 +192,127 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
     env = gym.make("Pendulum-v0")
     ob_dim = env.observation_space.shape[0]
     ac_dim = env.action_space.shape[0]
+    logz.configure_output_dir(logdir)
+    vf = LinearValueFunction()
 
-    YOUR_CODE_HERE
+    # Symbolic variables have the prefix sy_, to distinguish them from the numerical values
+    # that are computed later in these function
+    sy_ob_no = tf.placeholder(shape=[None, ob_dim], name="ob", dtype=tf.float32)  # batch of observations
+    sy_ac_n = tf.placeholder(shape=[None, ac_dim], name="ac",
+                             dtype=tf.float32)  # batch of actions taken by the policy, used for policy gradient computation
+    sy_adv_n = tf.placeholder(shape=[None], name="adv", dtype=tf.float32)  # advantage function estimate
+    sy_h1 = tf.nn.relu(dense(sy_ob_no, 32, "h1", weight_init=normc_initializer(1.0)))  # hidden layer
+    sy_h2 = tf.nn.relu(dense(sy_h1, 16, "h2", weight_init=normc_initializer(1.0)))  # hidden layer
+    sy_mean_na = dense(sy_h2, ac_dim, weight_init=normc_initializer(0.1))
+    sy_logstd_a = tf.get_variable("logstdev", [ac_dim], initializer=tf.constant_initializer(0))
 
+    sy_oldmean_na = tf.placeholder(shape=[None, ac_dim], name='oldmean',
+                                   dtype=tf.float32)  # mean BEFORE update (just used for KL diagnostic)
+    sy_oldlogstd_a = tf.placeholder(shape=[None, ac_dim], name='oldlogstd',
+                                    dtype=tf.float32) # logstd BEFORE update (just used for KL diagnostic)
+    sy_n = tf.shape(sy_mean_na)[0]
+    sy_sampled_eps = tf.random_normal(tf.shape(sy_mean_na))
+    sy_sampled_ac = sy_sampled_eps * tf.expand_dims(tf.exp(sy_logstd_a), axis=0) + sy_mean_na
+    # C - 0.5 * (x-mu)^2 / sigma^2
+    sy_logprob_n = tf.reduce_sum(0.5 * tf.square(
+                                                (sy_ac_n - sy_mean_na) / tf.exp(tf.expand_dims(sy_logstd_a, axis=0))
+                                                ), axis=1)
+
+    # <<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    # entropy = 0.5 * ln((2pi e)^k |Sigma|) = 0.5 * [ k * log(2pie) ] + 0.5 * sum_k log(std_k ^ 2)
+    #         = 0.5 * k * (log2pi + 1) + sum_k log(std_k)
+    sy_ent = tf.reduce_sum(sy_logstd_a) + 0.5 * ac_dim * (1 + np.log(2 * np.pi))
+    # KL = 0.5 * {trace(Sigma^-1 * Sigma_o) + (mu - mu_o)^T Sigma^{-1} (mu - mu_0) - k + ln|Sigma| - ln|Sigma_o|}
+    #    = 0.5 * {sum_k std_o^2/std^2 + sum_k det_k^2/std^2 - k + 2 * sum_k log std - 2 * sum_k log std_o}
+    sy_det_mu = sy_mean_na - sy_oldmean_na
+    sy_std = tf.exp(sy_logstd_a)
+    sy_oldstd = tf.exp(sy_oldlogstd_a)
+    sy_kl = 0.5 * (tf.reduce_sum(tf.square(sy_oldstd / sy_std)) * sy_n +
+                   tf.reduce_mean(tf.reduce_sum(tf.square(sy_det_mu / tf.expand_dims(sy_std, axis=0)), axis=1)) -
+                   ac_dim + 2 * tf.reduce_sum(sy_logstd_a) - 2 * tf.reduce_sum(sy_oldlogstd_a)
+                   )
+    # <<<<<<<<<<<<<<<<<<<<<<
+
+    sy_surr = tf.reduce_mean(sy_adv_n * sy_logprob_n)  # Loss function that we'll differentiate to get the policy gradient ("surr" is for "surrogate loss")
+
+    sy_stepsize = tf.placeholder(shape=[],
+                                 dtype=tf.float32)  # Symbolic, in case you want to change the stepsize during optimization. (We're not doing that currently)
+    update_op = tf.train.AdamOptimizer(stepsize).minimize(sy_surr)
+
+    sess = tf.Session()
+    sess.__enter__()  # equivalent to `with sess:`
+    tf.initialize_all_variables().run()  # pylint: disable=E1101
+
+    total_timesteps = 0
+
+    for i in range(n_iter):
+        print("********** Iteration %i ************" % i)
+
+        # Collect paths until we have enough timesteps
+        timesteps_this_batch = 0
+        paths = []
+        while True:
+            ob = env.reset()
+            terminated = False
+            obs, acs, rewards = [], [], []
+            animate_this_episode = (len(paths) == 0 and (i % 10 == 0) and animate)
+            while True:
+                if animate_this_episode:
+                    env.render()
+                obs.append(ob)
+                ac = sess.run(sy_sampled_ac, feed_dict={sy_ob_no: ob[None]})
+                acs.append(ac)
+                ob, rew, done, _ = env.step(ac)
+                rewards.append(rew)
+                if done:
+                    break
+            path = {"observation": np.array(obs), "terminated": terminated,
+                    "reward": np.array(rewards), "action": np.array(acs)}
+            paths.append(path)
+            timesteps_this_batch += pathlength(path)
+            if timesteps_this_batch > min_timesteps_per_batch:
+                break
+        total_timesteps += timesteps_this_batch
+        # Estimate advantage function
+        vtargs, vpreds, advs = [], [], []
+        for path in paths:
+            rew_t = path["reward"]
+            return_t = discount(rew_t, gamma)
+            vpred_t = vf.predict(path["observation"])
+            adv_t = return_t - vpred_t
+            advs.append(adv_t)
+            vtargs.append(return_t)
+            vpreds.append(vpred_t)
+
+        # Build arrays for policy update
+        ob_no = np.concatenate([path["observation"] for path in paths])
+        ac_n = np.concatenate([path["action"] for path in paths])
+        adv_n = np.concatenate(advs)
+        standardized_adv_n = (adv_n - adv_n.mean()) / (adv_n.std() + 1e-8)
+        vtarg_n = np.concatenate(vtargs)
+        vpred_n = np.concatenate(vpreds)
+        vf.fit(ob_no, vtarg_n)
+
+        # Policy update
+        _, old_mean, old_logstd = sess.run([update_op, sy_mean_na, sy_logstd_a],
+                                   feed_dict={sy_ob_no: ob_no, sy_ac_n: ac_n, sy_adv_n: standardized_adv_n,
+                                              sy_stepsize: stepsize})
+        kl, ent = sess.run([sy_kl, sy_ent], feed_dict={sy_ob_no: ob_no,
+                                                       sy_oldmean_na: old_mean,
+                                                       sy_oldlogstd_a: old_logstd})
+
+        # Log diagnostics
+        logz.log_tabular("EpRewMean", np.mean([path["reward"].sum() for path in paths]))
+        logz.log_tabular("EpLenMean", np.mean([pathlength(path) for path in paths]))
+        logz.log_tabular("KLOldNew", kl)
+        logz.log_tabular("Entropy", ent)
+        logz.log_tabular("EVBefore", explained_variance_1d(vpred_n, vtarg_n))
+        logz.log_tabular("EVAfter", explained_variance_1d(vf.predict(ob_no), vtarg_n))
+        logz.log_tabular("TimestepsSoFar", total_timesteps)
+        # If you're overfitting, EVAfter will be way larger than EVBefore.
+        # Note that we fit value function AFTER using it to compute the advantage function to avoid introducing bias
+        logz.dump_tabular()
 
 if __name__ == "__main__":
-    main_cartpole(logdir=None,animate=False) # when you want to start collecting results, set the logdir
+    # main_cartpole(logdir=None,animate=False) # when you want to start collecting results, set the logdir
+    main_pendulum(logdir=None,animate=False)
