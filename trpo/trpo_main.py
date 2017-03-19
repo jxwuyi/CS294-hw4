@@ -5,11 +5,7 @@ import tensorflow as tf
 import time
 import os
 import logging
-import gym
 from gym import envs, scoreboard
-from gym.spaces import Discrete, Box
-import prettytensor as pt
-from trpo.space_conversion import SpaceConversionEnv
 import tempfile
 import sys
 from collections import namedtuple
