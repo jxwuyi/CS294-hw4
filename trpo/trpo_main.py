@@ -1,4 +1,4 @@
-from trpo.utils import *
+from utils import *
 import numpy as np
 import random
 import tensorflow as tf
@@ -61,7 +61,7 @@ def normal_kl(old_mean, old_log_std, new_mean, new_log_std):
 
 
 def normal_entropy(log_std):
-    return np.sum(log_std + np.log(np.sqrt(2 * np.pi * np.e)), axis=1)
+    return tf.reduce_sum(log_std + np.log(np.sqrt(2 * np.pi * np.e)), axis=1)
 
 
 class TRPOAgent(object):
@@ -83,11 +83,11 @@ class TRPOAgent(object):
         self.obs = obs = tf.placeholder(tf.float32, shape=[None, obs_dim * 2 + act_dim], name="obs")
         self.prev_obs = np.zeros((1, obs_dim), dtype=np.float32)
         self.prev_action = np.zeros((1, act_dim), dtype=np.float32)
-        self.action = action = tf.placeholder(tf.int64, shape=[None, act_dim], name="action")
-        self.advant = advant = tf.placeholder(dtype, shape=[None], name="advant")
+        self.action = action = tf.placeholder(tf.float32, shape=[None, act_dim], name="action")
+        self.advant = advant = tf.placeholder(tf.float32, shape=[None], name="advant")
 
-        self.oldact_mean = oldact_mean = tf.placeholder(dtype, shape=[None, act_dim], name="oldaction_mean")
-        self.oldact_logstd = oldact_logstd = tf.placeholder(dtype, shape=[None, act_dim], name="oldaction_logstd")
+        self.oldact_mean = oldact_mean = tf.placeholder(tf.float32, shape=[None, act_dim], name="oldaction_mean")
+        self.oldact_logstd = oldact_logstd = tf.placeholder(tf.float32, shape=[None, act_dim], name="oldaction_logstd")
 
         # Create neural network.
         layer_h1 = tf.nn.tanh(dense(obs, 32, 'hidden1'))
@@ -254,7 +254,7 @@ env = envs.make(task)
 #env = SpaceConversionEnv(env, Box, Discrete)
 
 agent = TRPOAgent(env)
-agent.learn(1000, True)
+agent.learn(1000, False)
 #env.monitor.close()
 #gym.upload(training_dir,
 #           algorithm_id='trpo_ff')
