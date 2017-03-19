@@ -136,8 +136,9 @@ class TRPOAgent(object):
 
     def act(self, obs, *args):
         obs = np.expand_dims(obs, 0)
-        self.prev_obs = obs
         obs_new = np.concatenate([obs, self.prev_obs, self.prev_action], 1)
+
+        self.prev_obs = obs
 
         action, mean, logstd = self.session.run([self.sampled_action, self.act_mean, self.act_logstd], {self.obs: obs_new})
 
