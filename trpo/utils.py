@@ -2,7 +2,6 @@ import numpy as np
 import tensorflow as tf
 import random
 import scipy.signal
-import prettytensor as pt
 
 seed = 1
 random.seed(seed)
@@ -10,6 +9,29 @@ np.random.seed(seed)
 tf.set_random_seed(seed)
 
 dtype = tf.float32
+
+def normc_initializer(std=1.0):
+    """
+    Initialize array with normalized columns
+    """
+    def _initializer(shape, dtype=None, partition_info=None): #pylint: disable=W0613
+        out = np.random.randn(*shape).astype(np.float32)
+        out *= std / np.sqrt(np.square(out).sum(axis=0, keepdims=True))
+        return tf.constant(out)
+    return _initializer
+
+def dense(x, size, name, weight_init=None):
+    """
+    Dense (fully connected) layer
+    """
+    if isinstance(weight_init,float):
+        weight_init = normc_initializer(weight_init)
+    if weight_init is None:
+        weight_init = tf.contrib.layers.xavier_initializer()
+    with tf.variable_scope(name):
+        w = tf.get_variable('weight', [x.get_shape()[1], size], initializer=weight_init)
+        b = tf.get_variable('bias', [size], initializer=tf.constant_initializer(0, dtype=tf.float32))
+    return tf.matmul(x, w) + b
 
 def discount(x, gamma):
     assert x.ndim >= 1
@@ -32,8 +54,11 @@ def rollout(env, agent, max_pathlength, n_timesteps, animate = False):
             action_means.append(mean)
             action_logstds.append(logstd)
             res = env.step(action)  # obs, reward, done, info
-            ob = res[0]
-            rewards.append(res[1])
+            ob = np.squeeze(res[0])
+            reward = res[1]
+            if isinstance(res[1],list) or isinstance(res[1],np.ndarray):
+                reward = reward[0]
+            rewards.append(reward)
             if res[2]:
                 path = {"obs": np.concatenate(np.expand_dims(obs, 0)),
                         "action_means": np.concatenate(action_means),
@@ -56,13 +81,11 @@ class VF(object):
         self.session = session
 
     def create_net(self, shape):
-        print(shape)
         self.x = tf.placeholder(tf.float32, shape=[None, shape], name="x")
         self.y = tf.placeholder(tf.float32, shape=[None], name="y")
-        self.net = (pt.wrap(self.x).
-                    fully_connected(32, activation_fn=tf.nn.relu).
-                    fully_connected(16, activation_fn=tf.nn.relu).
-                    fully_connected(1))
+        hidden1 = tf.nn.relu(dense(self.x, 32, 'value-net-hidden1', 1.0))
+        hidden2 = tf.nn.relu(dense(hidden1, 16, 'value-net-hidden2', 1.0))
+        self.net = dense(hidden2, 1, 'value-net-out', 1.0)
         self.net = tf.reshape(self.net, (-1, ))
         l2 = (self.net - self.y) * (self.net - self.y)
         self.train = tf.train.AdamOptimizer().minimize(l2)
@@ -72,10 +95,9 @@ class VF(object):
     def _features(self, path):
         o = path["obs"].astype('float32')
         o = o.reshape(o.shape[0], -1)
-        act = path["action_dists"].astype('float32')
         l = len(path["rewards"])
         al = np.arange(l).reshape(-1, 1) / 10.0
-        ret = np.concatenate([o, act, al, np.ones((l, 1))], axis=1)
+        ret = np.concatenate([o, al, np.ones((l, 1))], axis=1)
         return ret
 
     def fit(self, paths):

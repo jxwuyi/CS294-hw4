@@ -16,23 +16,12 @@ tiny = 1e-10
 
 def create_config():
     MyConfig = namedtuple('MyConfig', ['timesteps_per_batch', 'max_pathlength', 'max_kl', 'cg_damping', 'gamma'])
-    config = MyConfig(timesteps_per_batch=5000,
+    config = MyConfig(timesteps_per_batch=6000,
                       max_pathlength=200,
-                      max_kl=0.01,
+                      max_kl=0.1,
                       cg_damping=0.1,
-                      gamma=0.95)
+                      gamma=0.99)
     return config
-
-
-def dense(x, size, name, weight_init=None):
-    """
-    Dense (fully connected) layer
-    """
-    if weight_init is None:
-        weight_init = tf.contrib.layers.xavier_initializer()
-    w = tf.get_variable(name + "/w", [x.get_shape()[1], size], initializer=weight_init)
-    b = tf.get_variable(name + "/b", [size], initializer=tf.constant_initializer(0, dtype=tf.float32))
-    return tf.matmul(x, w) + b
 
 
 def normal_log_prob(x, mean, log_std, dim):
@@ -80,7 +69,7 @@ class TRPOAgent(object):
         self.train = True
 
         # obs = [ current obs, previous obs, previous action ]
-        self.obs = obs = tf.placeholder(tf.float32, shape=[None, obs_dim * 2 + act_dim], name="obs")
+        self.obs = obs = tf.placeholder(tf.float32, shape=[None, obs_dim], name="obs")
         self.prev_obs = np.zeros((1, obs_dim), dtype=np.float32)
         self.prev_action = np.zeros((1, act_dim), dtype=np.float32)
         self.action = action = tf.placeholder(tf.float32, shape=[None, act_dim], name="action")
@@ -90,10 +79,10 @@ class TRPOAgent(object):
         self.oldact_logstd = oldact_logstd = tf.placeholder(tf.float32, shape=[None, act_dim], name="oldaction_logstd")
 
         # Create neural network.
-        layer_h1 = tf.nn.tanh(dense(obs, 32, 'hidden1'))
-        layer_h2 = tf.nn.tanh(dense(layer_h1, 8, 'hidden2'))
-        self.act_mean = act_mean = dense(layer_h2, act_dim, 'action_mean')
-        self.act_logstd = act_logstd = dense(layer_h2, act_dim, 'action_logstd')
+        layer_h1 = tf.nn.relu(dense(obs, 32, 'hidden1', 1.0))
+        layer_h2 = tf.nn.relu(dense(layer_h1, 8, 'hidden2', 1.0))
+        self.act_mean = act_mean = dense(layer_h2, act_dim, 'action_mean', 0.1)
+        self.act_logstd = act_logstd = dense(layer_h2, act_dim, 'action_logstd', 0.1)
 
         # sample action
         sampled_eps = tf.random_normal(tf.shape(act_mean))
@@ -135,14 +124,16 @@ class TRPOAgent(object):
         self.session.run(tf.initialize_all_variables())
 
     def act(self, obs, *args):
+        if len(obs.shape) > 1:
+            obs = np.squeeze(obs)
         obs = np.expand_dims(obs, 0)
-        obs_new = np.concatenate([obs, self.prev_obs, self.prev_action], 1)
+        obs_new = obs #np.concatenate([obs, self.prev_obs, self.prev_action], 1)
 
         self.prev_obs = obs
 
         action, mean, logstd = self.session.run([self.sampled_action, self.act_mean, self.act_logstd], {self.obs: obs_new})
-
         self.prev_action = action
+        action = action[0]
         return action, mean, logstd, np.squeeze(obs_new)
 
     def learn(self, max_iters = 1000, animate = True):
@@ -150,6 +141,7 @@ class TRPOAgent(object):
         start_time = time.time()
         numeptotal = 0
         for i in range(max_iters):
+            print("\n********** Iteration %i ************" % i)
             # Generating paths.
             print("Rollout")
             paths = rollout(
@@ -177,7 +169,7 @@ class TRPOAgent(object):
             advant_n = np.concatenate([path["advant"] for path in paths])
             advant_n -= advant_n.mean()
             advant_n /= (advant_n.std() + tiny)
-
+            
             feed = {self.obs: obs_n,
                     self.action: action_n,
                     self.advant: advant_n,
@@ -187,9 +179,6 @@ class TRPOAgent(object):
 
             episoderewards = np.array([path["rewards"].sum() for path in paths])
 
-            print("\n********** Iteration %i ************" % i)
-            if episoderewards.mean() > 1.1 * self.env.spec.reward_threshold:
-                self.train = False
             if not self.train:
                 print("Episode mean: %f" % episoderewards.mean())
                 self.end_count += 1
@@ -225,21 +214,26 @@ class TRPOAgent(object):
                 stats = {}
 
                 numeptotal += len(episoderewards)
-                stats["Total number of episodes"] = numeptotal
-                stats["Average sum of rewards per episode"] = episoderewards.mean()
-                stats["Entropy"] = entropy
+                items = ["Total number of episodes", "Average sum of rewards per episode",
+                         "Entropy","Baseline explained", "KL between old and new distribution",
+                         "Surrogate loss", "Time elapsed"]
+                stats[items[0]] = numeptotal
+                stats[items[1]] = episoderewards.mean()
+                stats[items[2]] = entropy
                 exp = explained_variance(np.array(baseline_n), np.array(returns_n))
-                stats["Baseline explained"] = exp
-                stats["Time elapsed"] = "%.2f mins" % ((time.time() - start_time) / 60.0)
-                stats["KL between old and new distribution"] = kloldnew
-                stats["Surrogate loss"] = surrafter
-                for k, v in stats.items():
+                stats[items[3]] = exp
+                stats[items[4]] = kloldnew
+                stats[items[5]] = surrafter
+                stats[items[6]] = "%.2f mins" % ((time.time() - start_time) / 60.0)
+                for k in items:
+                    v = stats[k]
                     print(k + ": " + " " * (40 - len(k)) + str(v))
                 if entropy != entropy:
                     exit(-1)
-                if exp > 0.8:
-                    self.train = False
+                #if exp > 0.8:
+                #    self.train = False
 
+tf.reset_default_graph()
 training_dir = tempfile.mkdtemp()
 logging.getLogger().setLevel(logging.DEBUG)
 
@@ -255,7 +249,7 @@ env = envs.make(task)
 #env = SpaceConversionEnv(env, Box, Discrete)
 
 agent = TRPOAgent(env)
-agent.learn(1000, False)
+agent.learn(1000, True)
 #env.monitor.close()
 #gym.upload(training_dir,
 #           algorithm_id='trpo_ff')

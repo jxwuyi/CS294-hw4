@@ -188,7 +188,7 @@ def main_cartpole(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
         # Note that we fit value function AFTER using it to compute the advantage function to avoid introducing bias
         logz.dump_tabular()
 
-def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=1e-2, animate=True, logdir=None):
+def main_pendulum(n_iter=4000, gamma=1.0, min_timesteps_per_batch=20000, stepsize=2e-3, animate=True, logdir=None):
     env = gym.make("Pendulum-v0")
     ob_dim = env.observation_space.shape[0]
     ac_dim = env.action_space.shape[0]
@@ -201,10 +201,10 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
     sy_ac_n = tf.placeholder(shape=[None, ac_dim], name="ac",
                              dtype=tf.float32)  # batch of actions taken by the policy, used for policy gradient computation
     sy_adv_n = tf.placeholder(shape=[None], name="adv", dtype=tf.float32)  # advantage function estimate
-    sy_h1 = tf.nn.relu(dense(sy_ob_no, 32, "h1", weight_init=normc_initializer(1.0)))  # hidden layer
-    sy_h2 = tf.nn.relu(dense(sy_h1, 16, "h2", weight_init=normc_initializer(1.0)))  # hidden layer
-    sy_mean_na = dense(sy_h2, ac_dim, 'mean', weight_init=normc_initializer(0.1))
-    sy_logstd_a = dense(sy_h2, ac_dim, 'mean', weight_init=normc_initializer(0.1))
+    sy_h1 = tf.nn.relu(dense(sy_ob_no, 32, "h1", weight_init=normc_initializer(0.1)))  # hidden layer
+    sy_h2 = tf.nn.relu(dense(sy_h1, 8, "h2", weight_init=normc_initializer(0.1)))  # hidden layer
+    sy_mean_na = dense(sy_h1, ac_dim, 'mean', weight_init=normc_initializer(0.01))
+    sy_logstd_a = dense(sy_h1, ac_dim, 'logstd', weight_init=normc_initializer(0.01))
     # sy_logstd_a = tf.get_variable("logstdev", [ac_dim], initializer=tf.constant_initializer(0,dtype=tf.float32))
 
     sy_oldmean_na = tf.placeholder(shape=[None, ac_dim], name='oldmean',
@@ -216,7 +216,7 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
     # log P = -0.5 * (x - mu) ^2 / Sigma - k/2 log(2 pi) - 0.5 log(|Sigma|)
     #       = -0.5 * (x - mu) ^ 2 / (std)^2 - sum_k log(std) - 0.5 * k * log(2pi)
     sy_logprob_n = tf.reduce_sum(0.5 * tf.square((sy_ac_n - sy_mean_na) / tf.exp(sy_logstd_a)) + sy_logstd_a,
-                                 axis=1)  # ignore the constant term: 0.5 * ac_dim * log(2pi)
+                                 axis=1) + 0.5 * tf.cast(ac_dim,dtype=tf.float32) * np.log(2 * np.pi)
 
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<
     # entropy = 0.5 * ln((2pi e)^k |Sigma|) = 0.5 * [ k * log(2pie) ] + 0.5 * sum_k log(std_k ^ 2)
@@ -320,4 +320,4 @@ def main_pendulum(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
 
 if __name__ == "__main__":
     #main_cartpole(logdir=None,animate=False) # when you want to start collecting results, set the logdir
-    main_pendulum(logdir=None, animate=False)
+    main_pendulum(logdir='./progress', animate=True)
