@@ -416,8 +416,8 @@ def main_pendulum1(d):
 
 def run(case):
     if case == 0 or case < 0:
-        main_cartpole(logdir='./log/cartpole-linear',vf_type='linear') # when you want to start collecting results, set the logdir
-        main_cartpole(logdir='./log/cartpole-nn',vf_type='nn') # when you want to start collecting results, set the logdir    
+        main_cartpole(logdir='./log/cartpole-linear',vf_type='linear', animate=(case>-1)) # when you want to start collecting results, set the logdir
+        main_cartpole(logdir='./log/cartpole-nn',vf_type='nn',animate=(case>-1)) # when you want to start collecting results, set the logdir    
     if case == 2:
         main_pendulum(logdir='./log/temp-test-pendulum-nn', gamma=0.97, animate=False, min_timesteps_per_batch=2500, n_iter=300, initial_stepsize=1e-3,
                       vf_type = 'nn', seed=0, desired_kl=2e-3)
@@ -436,8 +436,8 @@ def run(case):
         p.map(main_pendulum1, params)
 
 if __name__ == "__main__":
-    #run(-1)
-    run(2)
+    run(-1)
+    #run(2)
     #run(0)
     #run(1)
 
