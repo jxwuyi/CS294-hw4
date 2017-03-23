@@ -115,7 +115,7 @@ class NnValueFunction(object):
         featmat = self.preproc(X)
         if self.net is None:
             self.create_net(featmat.shape[1])
-        for _ in range(30):
+        for _ in range(40):
             self.session.run(self.train, {self.x: featmat, self.y: y})
 
     def predict(self, X):
