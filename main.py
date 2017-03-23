@@ -14,13 +14,17 @@ def normc_initializer(std=1.0):
         return tf.constant(out)
     return _initializer
 
-
 def dense(x, size, name, weight_init=None):
     """
     Dense (fully connected) layer
     """
-    w = tf.get_variable(name + "/w", [x.get_shape()[1], size], initializer=weight_init)
-    b = tf.get_variable(name + "/b", [size], initializer=tf.zeros_initializer())
+    if isinstance(weight_init,float):
+        weight_init = normc_initializer(weight_init)
+    if weight_init is None:
+        weight_init = tf.contrib.layers.xavier_initializer()
+    with tf.variable_scope(name):
+        w = tf.get_variable('weight', [x.get_shape()[1], size], initializer=weight_init)
+        b = tf.get_variable('bias', [size], initializer=tf.constant_initializer(0, dtype=tf.float32))
     return tf.matmul(x, w) + b
 
 def fancy_slice_2d(X, inds0, inds1):
@@ -102,27 +106,21 @@ class NnValueFunction(object):
         self.train = tf.train.AdamOptimizer().minimize(l2)
         self.session.run(tf.initialize_all_variables())
 
-    def _features(self, path):
-        o = path["obs"].astype('float32')
-        o = o.reshape(o.shape[0], -1)
-        l = len(path["rewards"])
-        al = np.arange(l).reshape(-1, 1) / 10.0
-        ret = np.concatenate([o, al, np.ones((l, 1))], axis=1)
-        return ret
+    def preproc(self, X):
+        return np.concatenate([np.ones([X.shape[0], 1]), X, np.square(X)/2.0], axis=1)
 
-    def fit(self, paths):
-        featmat = np.concatenate([self._features(path) for path in paths])
+    def fit(self, X, y):
+        featmat = self.preproc(X)
         if self.net is None:
             self.create_net(featmat.shape[1])
-        returns = np.concatenate([path["returns"] for path in paths])
         for _ in range(50):
-            self.session.run(self.train, {self.x: featmat, self.y: returns})
+            self.session.run(self.train, {self.x: featmat, self.y: y})
 
-    def predict(self, path):
+    def predict(self, X):
         if self.net is None:
-            return np.zeros(len(path["rewards"]))
+            return np.zeros(X.shape[0])
         else:
-            ret = self.session.run(self.net, {self.x: self._features(path)})
+            ret = self.session.run(self.net, {self.x: self.preproc(X)})
             return np.reshape(ret, (ret.shape[0],))
 
 
@@ -246,7 +244,7 @@ def main_cartpole(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
         # Note that we fit value function AFTER using it to compute the advantage function to avoid introducing bias
         logz.dump_tabular()
 
-def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_stepsize, desired_kl, vf_type, vf_params, animate=False):
+def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_stepsize, desired_kl, vf_type, animate=False):
     tf.set_random_seed(seed)
     np.random.seed(seed)
     env = gym.make("Pendulum-v0")
@@ -398,20 +396,30 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
 def main_pendulum1(d):
     return main_pendulum(**d)
 
-if __name__ == "__main__":
-    if 1:
-        main_cartpole(logdir=None) # when you want to start collecting results, set the logdir
-    if 0:
+def run(case):
+    if case == 0 or case < 0:
+        main_cartpole(logdir='./log/cartpole-linear',vf_type='linear') # when you want to start collecting results, set the logdir
+        main_cartpole(logdir='./log/cartpole-nn',vf_type='nn') # when you want to start collecting results, set the logdir    
+    if case == 2:
+        main_pendulum(logdir='./log/temp-test-pendulum-nn', gamma=0.97, animate=False, min_timesteps_per_batch=2500, n_iter=300, initial_stepsize=1e-3,
+                      vf_type = 'nn', seed=0, desired_kl=2e-3)
+    if case == 1 or case < 0:
         general_params = dict(gamma=0.97, animate=False, min_timesteps_per_batch=2500, n_iter=300, initial_stepsize=1e-3)
         params = [
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
+            dict(logdir='./log/linearvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
+            dict(logdir='./log/nnvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
+            dict(logdir='./log/linearvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
+            dict(logdir='./log/nnvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
+            dict(logdir='./log/linearvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
+            dict(logdir='./log/nnvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
         ]
         import multiprocessing
         p = multiprocessing.Pool()
         p.map(main_pendulum1, params)
+
+if __name__ == "__main__":
+    run(-1)
+    #run(2)
+    #run(0)
+    #run(1)
 
