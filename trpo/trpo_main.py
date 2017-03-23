@@ -18,7 +18,7 @@ def create_config():
     MyConfig = namedtuple('MyConfig', ['timesteps_per_batch', 'max_pathlength', 'max_kl', 'cg_damping', 'gamma'])
     config = MyConfig(timesteps_per_batch=6000,
                       max_pathlength=200,
-                      max_kl=0.1,
+                      max_kl=0.01,
                       cg_damping=0.1,
                       gamma=0.99)
     return config
@@ -243,13 +243,16 @@ else:
     #task = "RepeatCopy-v0"
     task = "Pendulum-v0"
 
+hdlr = logging.FileHandler('./log/'+task)
+logging.getLogger().addHandler(hdlr)
+
 env = envs.make(task)
 #env.monitor.start(training_dir)
 
 #env = SpaceConversionEnv(env, Box, Discrete)
 
 agent = TRPOAgent(env)
-agent.learn(1000, True)
+agent.learn(10000, False)
 #env.monitor.close()
 #gym.upload(training_dir,
 #           algorithm_id='trpo_ff')
