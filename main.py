@@ -244,7 +244,7 @@ def main_cartpole(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
         # Note that we fit value function AFTER using it to compute the advantage function to avoid introducing bias
         logz.dump_tabular()
 
-def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_stepsize, desired_kl, vf_type, animate=False):
+def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_stepsize, desired_kl, vf_type, animate=False, vf_params={}):
     tf.set_random_seed(seed)
     np.random.seed(seed)
     env = gym.make("Pendulum-v0")
