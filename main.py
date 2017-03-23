@@ -4,6 +4,8 @@ import gym
 import logz
 import scipy.signal
 
+tiny = 1e-10
+
 def normc_initializer(std=1.0):
     """
     Initialize array with normalized columns
@@ -113,7 +115,7 @@ class NnValueFunction(object):
         featmat = self.preproc(X)
         if self.net is None:
             self.create_net(featmat.shape[1])
-        for _ in range(50):
+        for _ in range(30):
             self.session.run(self.train, {self.x: featmat, self.y: y})
 
     def predict(self, X):
@@ -129,7 +131,33 @@ def lrelu(x, leak=0.2):
     f2 = 0.5 * (1 - leak)
     return f1 * x + f2 * abs(x)
 
+def normal_log_prob(x, mean, log_std, dim):
+    """
+    x: [batch, dim]
+    return: [batch]
+    """
+    zs = (x - mean) / tf.exp(log_std)
+    return - tf.reduce_sum(log_std, axis=1) - \
+           0.5 * tf.reduce_sum(tf.square(zs), axis=1) - \
+           0.5 * dim * np.log(2 * np.pi)
 
+
+def normal_kl(old_mean, old_log_std, new_mean, new_log_std):
+    """
+    mean, log_std: [batch,  dim]
+    return: [batch]
+    """
+    old_std = tf.exp(old_log_std)
+    new_std = tf.exp(new_log_std)
+    numerator = tf.square(old_mean - new_mean) + \
+                tf.square(old_std) - tf.square(new_std)
+    denominator = 2 * tf.square(new_std) + tiny
+    return tf.reduce_sum(
+        numerator / denominator + new_log_std - old_log_std, axis=1)
+
+
+def normal_entropy(log_std):
+    return tf.reduce_sum(log_std + np.log(np.sqrt(2 * np.pi * np.e)), axis=1)
 
 def main_cartpole(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=1e-2, animate=True, logdir=None, vf_type='linear'):
     env = gym.make("CartPole-v0")
@@ -258,8 +286,8 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     sy_ac_n = tf.placeholder(shape=[None, ac_dim], name="ac",
                              dtype=tf.float32)  # batch of actions taken by the policy, used for policy gradient computation
     sy_adv_n = tf.placeholder(shape=[None], name="adv", dtype=tf.float32)  # advantage function estimate
-    sy_h1 = tf.nn.relu(dense(sy_ob_no, 32, "h1", weight_init=normc_initializer(0.1)))  # hidden layer
-    sy_h2 = tf.nn.relu(dense(sy_h1, 8, "h2", weight_init=normc_initializer(0.1)))  # hidden layer
+    sy_h1 = lrelu(dense(sy_ob_no, 32, "h1", weight_init=normc_initializer(0.1)))  # hidden layer
+    sy_h2 = lrelu(dense(sy_h1, 16, "h2", weight_init=normc_initializer(0.1)))  # hidden layer
     sy_mean_na = dense(sy_h1, ac_dim, 'mean', weight_init=normc_initializer(0.01))
     sy_logstd_a = dense(sy_h1, ac_dim, 'logstd', weight_init=normc_initializer(0.01))
     # sy_logstd_a = tf.get_variable("logstdev", [ac_dim], initializer=tf.constant_initializer(0,dtype=tf.float32))
@@ -272,25 +300,15 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     sy_sampled_ac = (sy_sampled_eps * tf.exp(sy_logstd_a) + sy_mean_na)[0]
     # log P = -0.5 * (x - mu) ^2 / Sigma - k/2 log(2 pi) - 0.5 log(|Sigma|)
     #       = -0.5 * (x - mu) ^ 2 / (std)^2 - sum_k log(std) - 0.5 * k * log(2pi)
-    sy_logprob_n = tf.reduce_sum(0.5 * tf.square((sy_ac_n - sy_mean_na) / tf.exp(sy_logstd_a)) + sy_logstd_a,
-                                 axis=1) + 0.5 * tf.cast(ac_dim, dtype=tf.float32) * np.log(2 * np.pi)
+    sy_logprob_n = normal_log_prob(sy_ac_n,sy_mean_na,sy_logstd_a,ac_dim)
 
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<
     # entropy = 0.5 * ln((2pi e)^k |Sigma|) = 0.5 * [ k * log(2pie) ] + 0.5 * sum_k log(std_k ^ 2)
     #         = 0.5 * k * (log2pi + 1) + sum_k log(std_k)
-    sy_ent = tf.reduce_mean(tf.reduce_sum(sy_logstd_a, axis=1) + 0.5 * ac_dim * (1 + np.log(2 * np.pi)))
+    sy_ent = tf.reduce_mean(normal_entropy(sy_logstd_a))
     # KL = 0.5 * {trace(Sigma^-1 * Sigma_o) + (mu - mu_o)^T Sigma^{-1} (mu - mu_0) - k + ln|Sigma| - ln|Sigma_o|}
     #    = 0.5 * {sum_k std_o^2/std^2 + sum_k det_k^2/std^2 - k + 2 * sum_k log std - 2 * sum_k log std_o}
-    sy_det_mu = sy_mean_na - sy_oldmean_na
-    sy_std = tf.exp(sy_logstd_a)
-    sy_oldstd = tf.exp(sy_oldlogstd_a)
-    sy_kl = 0.5 * tf.reduce_sum(
-        tf.reduce_sum(tf.square(sy_oldstd / sy_std), axis=1) +
-        tf.reduce_sum(tf.square(sy_det_mu / sy_std), axis=1) -
-        tf.cast(ac_dim, tf.float32) +
-        2.0 * tf.reduce_sum(sy_logstd_a, axis=1) -
-        2.0 * tf.reduce_sum(sy_oldlogstd_a, axis=1),
-    )
+    sy_kl = tf.reduce_mean(normal_kl(sy_oldmean_na, sy_oldlogstd_a, sy_mean_na, sy_logstd_a))
     # <<<<<<<<<<<<<<<<<<<<<<
 
     sy_surr = - tf.reduce_mean(sy_adv_n * sy_logprob_n) # Loss function that we'll differentiate to get the policy gradient ("surr" is for "surrogate loss")
@@ -418,8 +436,8 @@ def run(case):
         p.map(main_pendulum1, params)
 
 if __name__ == "__main__":
-    run(-1)
-    #run(2)
+    #run(-1)
+    run(2)
     #run(0)
     #run(1)
 
