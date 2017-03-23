@@ -160,6 +160,7 @@ def normal_entropy(log_std):
     return tf.reduce_sum(log_std + np.log(np.sqrt(2 * np.pi * np.e)), axis=1)
 
 def main_cartpole(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=1e-2, animate=True, logdir=None, vf_type='linear'):
+    tf.reset_default_graph()
     env = gym.make("CartPole-v0")
     ob_dim = env.observation_space.shape[0]
     num_actions = env.action_space.n
@@ -273,6 +274,7 @@ def main_cartpole(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
         logz.dump_tabular()
 
 def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_stepsize, desired_kl, vf_type, animate=False, vf_params={}):
+    tf.reset_default_graph()
     tf.set_random_seed(seed)
     np.random.seed(seed)
     env = gym.make("Pendulum-v0")
@@ -419,17 +421,17 @@ def run(case):
         main_cartpole(logdir='./log/cartpole-linear',vf_type='linear', animate=(case>-1)) # when you want to start collecting results, set the logdir
         main_cartpole(logdir='./log/cartpole-nn',vf_type='nn',animate=(case>-1)) # when you want to start collecting results, set the logdir    
     if case == 2:
-        main_pendulum(logdir='./log/temp-test-pendulum-nn', gamma=0.97, animate=False, min_timesteps_per_batch=2500, n_iter=300, initial_stepsize=1e-3,
+        main_pendulum(logdir='./log/temp-test-pendulum-nn', gamma=0.97, animate=False, min_timesteps_per_batch=2500, initial_stepsize=1e-3,
                       vf_type = 'nn', seed=0, desired_kl=2e-3)
     if case == 1 or case < 0:
         general_params = dict(gamma=0.97, animate=False, min_timesteps_per_batch=2500, n_iter=300, initial_stepsize=1e-3)
         params = [
-            dict(logdir='./log/linearvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            dict(logdir='./log/nnvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
-            dict(logdir='./log/linearvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            dict(logdir='./log/nnvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
-            dict(logdir='./log/linearvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            dict(logdir='./log/nnvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
+            dict(logdir='./log/linearvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='linear', n_iter=500000, vf_params={}, **general_params),
+            dict(logdir='./log/nnvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='nn', n_iter=300000, vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
+            dict(logdir='./log/linearvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='linear', n_iter=500000, vf_params={}, **general_params),
+            dict(logdir='./log/nnvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='nn', n_iter=300000, vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
+            dict(logdir='./log/linearvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='linear', n_iter=500000, vf_params={}, **general_params),
+            dict(logdir='./log/nnvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='nn', n_iter=300000, vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
         ]
         import multiprocessing
         p = multiprocessing.Pool()
