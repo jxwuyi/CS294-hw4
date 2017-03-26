@@ -290,8 +290,8 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     sy_adv_n = tf.placeholder(shape=[None], name="adv", dtype=tf.float32)  # advantage function estimate
     sy_h1 = lrelu(dense(sy_ob_no, 32, "h1", weight_init=normc_initializer(0.1)))  # hidden layer
     sy_h2 = lrelu(dense(sy_h1, 16, "h2", weight_init=normc_initializer(0.1)))  # hidden layer
-    sy_mean_na = dense(sy_h1, ac_dim, 'mean', weight_init=normc_initializer(0.01))
-    sy_logstd_a = dense(sy_h1, ac_dim, 'logstd', weight_init=normc_initializer(0.01))
+    sy_mean_na = dense(sy_h2, ac_dim, 'mean', weight_init=normc_initializer(0.01))
+    sy_logstd_a = dense(sy_h2, ac_dim, 'logstd', weight_init=normc_initializer(0.01))
     # sy_logstd_a = tf.get_variable("logstdev", [ac_dim], initializer=tf.constant_initializer(0,dtype=tf.float32))
 
     sy_oldmean_na = tf.placeholder(shape=[None, ac_dim], name='oldmean',
