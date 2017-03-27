@@ -418,12 +418,10 @@ def main_pendulum1(d):
 
 def run(case):
     if case == 0 or case < 0:
-        main_cartpole(logdir='./log/cartpole-linear',vf_type='linear', animate=(case>-1)) # when you want to start collecting results, set the logdir
-        main_cartpole(logdir='./log/cartpole-nn',vf_type='nn',animate=(case>-1)) # when you want to start collecting results, set the logdir    
-    if case == 2:
-        main_pendulum(logdir='./log/temp-test-pendulum-nn', gamma=0.97, animate=False, min_timesteps_per_batch=2500, initial_stepsize=1e-3,
-                      vf_type = 'nn', seed=0, desired_kl=2e-3)
+        main_cartpole(logdir='./log/cartpole-linear',vf_type='linear', animate=False) # when you want to start collecting results, set the logdir
     if case == 1 or case < 0:
+        main_cartpole(logdir='./log/cartpole-nn',vf_type='nn',animate=False) # when you want to start collecting results, set the logdir    
+    if case == 2 or case < 0:
         general_params = dict(gamma=0.97, animate=False, min_timesteps_per_batch=2500, n_iter=300, initial_stepsize=1e-3)
         params = [
             dict(logdir='./log/linearvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='linear', n_iter=500000, vf_params={}, **general_params),
@@ -438,8 +436,12 @@ def run(case):
         p.map(main_pendulum1, params)
 
 if __name__ == "__main__":
-    run(-1)
-    #run(2)
-    #run(0)
-    #run(1)
+    import argparse
+    parser=argparse.ArgumentParser()
+    parser.add_argument('module',choices=['0','1','2'],
+                        help='0: cart-pole with linear v-func; '
+                            +'1: cart-pole with neural-net v-func; '+
+                             '2: pendulum')
+    args=parser.parse_args()
+    run(int(args.module))
 

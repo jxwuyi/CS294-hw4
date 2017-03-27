@@ -2,7 +2,8 @@
 
 rm -rf ./log/*
 
-CUDA_VISIBLE_DEVICES='' python3 main.py
 
-# cd trpo
-# CUDA_VISIBLE_DEVICES='' python3 trpo_main.py 
+CUDA_VISIBLE_DEVICES='' python3 main.py 0
+CUDA_VISIBLE_DEVICES='' python3 main.py 1
+CUDA_VISIBLE_DEVICES='' python3 main.py 2
+
